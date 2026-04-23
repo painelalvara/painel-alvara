@@ -6,7 +6,8 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from num2words import num2words
 
-st.set_page_config(page_title="TROPA DO ADV - OFICIAL", layout="centered")
+# Configuração da Página
+st.set_page_config(page_title="TROPA DO ADV", layout="centered")
 
 def obter_data_extenso():
     meses = {1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril", 5: "maio", 6: "junho", 
@@ -20,14 +21,13 @@ def formatar_cpf_cnpj(valor):
         return f"{numeros[:3]}.{numeros[3:6]}.{numeros[6:9]}-{numeros[9:]}"
     return valor
 
-def formatar_extenso_tropa(valor_float):
-    # Gera o extenso com as primeiras letras maiúsculas
-    ext = num2words(valor_float, lang='pt_BR', to='currency').title()
-    # Força apenas o "E" a ser minúsculo, igual ao seu original
-    ext_corrigido = ext.replace(" E ", " e ")
-    return ext_corrigido
+def formatar_extenso_simples(valor_float):
+    # Gera o extenso padrão
+    ext = num2words(valor_float, lang='pt_BR', to='currency')
+    # Deixa apenas a primeira letra da frase em maiúsculo
+    return ext.capitalize()
 
-def gerar_pdf_tropa_perfeito(dados):
+def gerar_pdf_tropa_corrigido(dados):
     packet = io.BytesIO()
     c = canvas.Canvas(packet, pagesize=A4)
     largura, altura = A4
@@ -41,7 +41,7 @@ def gerar_pdf_tropa_perfeito(dados):
     
     # 1. PROCESSO TOPO DIREITO
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(435, altura - 153, f"{dados['processo']}.")
+    c.drawString(435, altura - 153, f"{dados['processo']}")
     
     # 2. BLOCO DE DADOS
     x_margem = 105
@@ -57,7 +57,7 @@ def gerar_pdf_tropa_perfeito(dados):
     y -= 15
     escrever_campo("CPF/CNPJ: ", dados['cpf'], y, 62)
     y -= 15
-    escrever_campo("Processo N°: ", dados['processo'] + ".", y, 72)
+    escrever_campo("Processo N°: ", dados['processo'], y, 72)
     y -= 15
     escrever_campo("Assunto: ", dados['assunto'], y, 50)
     y -= 15
@@ -66,8 +66,11 @@ def gerar_pdf_tropa_perfeito(dados):
     c.drawString(x_margem, y, "Cumprimento de sentença contra:")
     y -= 15
     c.setFont("Helvetica", 10)
-    # A LINHA FOI REMOVIDA DAQUI - O TEMPLATE JÁ TEM
-    c.drawString(x_margem, y, str(dados['contra']))
+    # Limita o texto da contraparte para não estourar a margem
+    contra_texto = str(dados['contra'])
+    if len(contra_texto) > 85:
+        contra_texto = contra_texto[:82] + "..."
+    c.drawString(x_margem, y, contra_texto)
 
     # 3. VALOR A RECEBER
     y_valor = altura - 540
@@ -88,7 +91,7 @@ def gerar_pdf_tropa_perfeito(dados):
     
     # 5. ASSINATURA
     c.setFont("Helvetica-Bold", 11)
-    c.drawCentredString(largura/2, altura - 675, dados['advogado'].upper())
+    c.drawCentredString(largura/2, altura - 675, dados['advogado'])
     c.drawCentredString(largura/2, altura - 695, f"{obter_data_extenso()}")
     
     c.save()
@@ -114,21 +117,21 @@ if st.button("GERAR ALVARÁ"):
             v_str = valor.group(1).strip() if valor else "0,00"
             num_limpo = v_str.replace('.', '').replace(',', '.')
             
-            extenso_final = formatar_extenso_tropa(float(num_limpo))
+            extenso_final = formatar_extenso_simples(float(num_limpo))
 
             dados = {
                 'nome': nome.group(1).strip() if nome else "",
                 'cpf': formatar_cpf_cnpj(cpf.group(1)) if cpf else "",
                 'processo': proc.group(1).strip() if proc else "",
-                'assunto': assunto.group(1).strip().capitalize() if assunto else "Práticas abusivas",
+                'assunto': assunto.group(1).strip() if assunto else "Práticas Abusivas",
                 'contra': contra.group(1).strip() if contra else "",
                 'valor_str': v_str,
                 'extenso': extenso_final,
-                'advogado': adv.group(1).strip() if adv else "DR. ADVOGADO RESPONSÁVEL"
+                'advogado': adv.group(1).strip().upper() if adv else "DR. ADVOGADO RESPONSÁVEL"
             }
 
-            pdf = gerar_pdf_tropa_perfeito(dados)
-            st.success(f"Alvará pronto!")
-            st.download_button("📥 BAIXAR AGORA", pdf, f"ALVARA_{dados['processo']}.pdf")
+            pdf = gerar_pdf_tropa_corrigido(dados)
+            st.success("Alvará gerado com sucesso!")
+            st.download_button("📥 BAIXAR ALVARÁ", pdf, f"ALVARA_{dados['processo']}.pdf")
         except Exception as e:
             st.error(f"Erro: {e}")
