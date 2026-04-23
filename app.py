@@ -8,13 +8,26 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Paragraph
 from num2words import num2words
 
-# Configuração da página
 st.set_page_config(page_title="SISTEMA TROPA DO ADV", layout="centered")
 
 def formatar_extenso_tropa(valor_float):
-    # Formata o valor por extenso com a primeira letra maiúscula
     ext = num2words(valor_float, lang='pt_BR', to='currency').title()
     return ext.replace(" E ", " e ")
+
+def formatar_documento(doc):
+    # Remove qualquer coisa que não seja número
+    apenas_numeros = re.sub(r'\D', '', doc)
+    
+    # Se for CPF (11 dígitos)
+    if len(apenas_numeros) == 11:
+        return f"{apenas_numeros[:3]}.{apenas_numeros[3:6]}.{apenas_numeros[6:9]}-{apenas_numeros[9:]}"
+    
+    # Se for CNPJ (14 dígitos)
+    elif len(apenas_numeros) == 14:
+        return f"{apenas_numeros[:2]}.{apenas_numeros[2:5]}.{apenas_numeros[5:8]}/{apenas_numeros[8:12]}-{apenas_numeros[12:]}"
+    
+    # Se não for nenhum dos dois, retorna o que veio original
+    return doc
 
 def gerar_pdf_tropa_final(dados):
     packet = io.BytesIO()
@@ -22,7 +35,6 @@ def gerar_pdf_tropa_final(dados):
     largura, altura = A4
     
     try:
-        # Tenta carregar o template de fundo
         c.drawImage('template.png', 0, 0, width=largura, height=altura)
     except:
         pass
@@ -33,11 +45,11 @@ def gerar_pdf_tropa_final(dados):
 
     c.setFillColorRGB(0, 0, 0)
     
-    # 1. PROCESSO NO CABEÇALHO (TOPO DIREITO)
+    # 1. PROCESSO NO CABEÇALHO
     c.setFont("Helvetica-Bold", 10)
     c.drawString(435, altura - 153, f"{dados['processo']}")
     
-    # 2. BLOCO DE DADOS (ALINHAMENTO FIXO)
+    # 2. BLOCO DE DADOS
     x = 105
     y_base = altura - 316
 
@@ -50,7 +62,7 @@ def gerar_pdf_tropa_final(dados):
     c.setFont("Helvetica-Bold", 11)
     c.drawString(x, y_base, "CPF/CNPJ: ")
     c.setFont("Helvetica", 11)
-    c.drawString(x + 62, y_base, dados['cpf'])
+    c.drawString(x + 62, y_base, dados['cpf']) # Aqui já sai formatado
     
     y_base -= 14
     c.setFont("Helvetica-Bold", 11)
@@ -70,14 +82,13 @@ def gerar_pdf_tropa_final(dados):
     
     y_base -= 14
     contra_texto = dados['contra']
-    # Limitador para não vazar a folha
     if len(contra_texto) > 85:
         contra_texto = contra_texto[:82] + "..."
     
     c.setFont("Helvetica", 11)
     c.drawString(x, y_base, contra_texto)
 
-    # 3. VALOR A RECEBER (DINÂMICO)
+    # 3. VALOR A RECEBER
     y_valor_fixo = altura - 540
     p_valor = Paragraph(f"<b>Valor a receber: R$ {dados['valor_str']}</b> ({dados['extenso']})", style_corpo)
     w_val, h_val = p_valor.wrap(largura - 180, 100)
@@ -96,7 +107,6 @@ def gerar_pdf_tropa_final(dados):
 
     # 5. ASSINATURA E DATA
     c.setFont("Helvetica-Bold", 11)
-    # Aqui vai o nome do Dr. ou Dra. capturado da live
     c.drawCentredString(largura/2, 160, dados['advogado'])
     
     c.setFont("Helvetica", 11)
@@ -109,45 +119,41 @@ def gerar_pdf_tropa_final(dados):
     packet.seek(0)
     return packet
 
-# Interface do Usuário
+# Interface Streamlit
 st.title("⚖️ SISTEMA TROPA DO ADV")
-texto_raw = st.text_area("Cole a Live aqui:", height=250)
+texto_raw = st.text_area("Cole a Live aqui:", height=200)
 
 if st.button("GERAR ALVARÁ"):
     if texto_raw:
         try:
-            # Limpeza de caracteres especiais da live
             t = texto_raw.replace('*', '')
-            
-            # Buscas por Expressão Regular (Regex)
             nome = re.search(r"NOME:\s*(.*)", t, re.I)
-            cpf = re.search(r"CPF:\s*([\d\.-]*)", t, re.I)
+            cpf_raw = re.search(r"CPF:\s*([\d\.-]*)", t, re.I)
             proc = re.search(r"processo\s*nº\s*([\d\.\-\/]*)", t, re.I)
             assunto = re.search(r"Assunto:\s*(.*)", t, re.I)
             contra = re.search(r"Parte\s*contrária:\s*(.*)", t, re.I)
             valor = re.search(r"valor\s*de\s*R\$\s*([\d\.,]*)", t, re.I)
-            
-            # REGRAS DE OURO PARA O ADVOGADO:
-            # Captura "Dr.", "Dra.", "Dr" ou "Dra" ignorando maiúsculas/minúsculas
-            adv_match = re.search(r"Atenciosamente,\s*((?:Dr|Dra)\.?\s*.*)", t, re.I)
+            adv = re.search(r"Atenciosamente,\s*((?:Dr|Dra)\.?\s*.*)", t, re.I)
 
             v_str = valor.group(1).strip() if valor else "0,00"
             num_limpo = v_str.replace('.', '').replace(',', '.')
             
-            # Tratamento final dos dados
+            # Formata o CPF/CNPJ antes de salvar nos dados
+            doc_final = formatar_documento(cpf_raw.group(1).strip()) if cpf_raw else ""
+
             dados = {
                 'nome': nome.group(1).strip() if nome else "",
-                'cpf': cpf.group(1).strip() if cpf else "",
+                'cpf': doc_final,
                 'processo': proc.group(1).strip() if proc else "",
                 'assunto': assunto.group(1).strip() if assunto else "Práticas Abusivas",
                 'contra': contra.group(1).strip() if contra else "",
                 'valor_str': v_str,
                 'extenso': formatar_extenso_tropa(float(num_limpo)),
-                'advogado': adv_match.group(1).strip().upper() if adv_match else "DR. RESPONSÁVEL"
+                'advogado': adv.group(1).strip().upper() if adv else "DR. ADVOGADO RESPONSÁVEL"
             }
 
             pdf = gerar_pdf_tropa_final(dados)
-            st.success(f"Alvará de {dados['nome']} gerado com sucesso!")
+            st.success("Tudo pronto! CPF formatado e Dra. reconhecida.")
             st.download_button("📥 BAIXAR AGORA", pdf, f"ALVARA_{dados['processo']}.pdf")
         except Exception as e:
-            st.error(f"Erro ao processar: {e}")
+            st.error(f"Erro: {e}")
