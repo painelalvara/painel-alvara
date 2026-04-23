@@ -5,58 +5,60 @@ from PIL import Image
 import io
 import re
 
-# Configuração da página
 st.set_page_config(page_title="TROPA DO ADV", layout="centered")
 
 st.title("⚖️ Sistema de Alvarás - TROPA DO ADV")
 
-# Área de texto para colar a live
-texto_bruto = st.text_area("Cole as informações da live aqui:", height=300)
+texto_bruto = st.text_area("Cole as informações aqui:", height=300)
 
 def gerar_pdf(texto):
-    # Lógica original de extração de dados
-    processo = re.search(r"(?:PROCESSO|Processo):\s*([\d\.\-\/]+)", texto)
-    valor = re.search(r"(?:VALOR|Valor|valor):\s*[R$\s]*([\d\.,]+)", texto)
+    # Procura processo e valor de um jeito mais certeiro
+    proc_match = re.search(r"(?:PROCESSO|PROC|Processo):?\s*([\d\.\-\/]+)", texto, re.IGNORECASE)
+    val_match = re.search(r"(?:VALOR|R\$):?\s*([\d\.,]+)", texto, re.IGNORECASE)
     
-    num_processo = processo.group(1) if processo else "NÃO INFORMADO"
-    valor_total = valor.group(1) if valor else "0,00"
+    num_proc = proc_match.group(1) if proc_match else "NAO_INFORMADO"
+    valor_final = val_match.group(1) if val_match else "0,00"
     
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=A4)
     
-    # Tenta carregar o template original
+    # Carrega o seu template
     try:
         can.drawImage("template.png", 0, 0, width=595, height=842)
     except:
         pass
 
-    # Formatação do texto no PDF (Posições originais)
-    can.setFont("Helvetica-Bold", 12)
-    can.drawString(110, 680, f"PROCESSO: {num_processo}")
-    can.drawString(110, 660, f"VALOR: R$ {valor_total}")
+    # --- AQUI É ONDE A GENTE ARRUMA A BAGUNÇA ---
+    can.setFillColorRGB(0, 0, 0) # Texto preto
     
-    # Restante do texto (Corpo da sentença)
-    can.setFont("Helvetica", 10)
+    # 1. Coloca o Processo e Valor em locais fixos (ajuste os números se precisar)
+    can.setFont("Helvetica-Bold", 14)
+    can.drawString(120, 710, f"PROCESSO: {num_proc}")
+    can.drawString(120, 690, f"VALOR: R$ {valor_final}")
+    
+    # 2. Coloca o resto do texto separado, linha por linha
+    can.setFont("Helvetica", 11)
+    y = 650
     linhas = texto.split('\n')
-    y_pos = 600
     for linha in linhas:
-        if y_pos > 100:
-            can.drawString(100, y_pos, linha)
-            y_pos -= 15
+        if linha.strip(): # Só escreve se a linha não estiver vazia
+            can.drawString(100, y, linha.strip())
+            y -= 18 # Pula para a linha de baixo (espaçamento)
+            if y < 50: # Cria nova página se acabar o espaço
+                can.showPage()
+                y = 800
             
     can.save()
     packet.seek(0)
-    return packet, num_processo
+    return packet, num_proc
 
-if st.button("GERAR MEU ALVARÁ ORIGINAL"):
+if st.button("GERAR ALVARÁ"):
     if texto_bruto:
         pdf_ready, nome_proc = gerar_pdf(texto_bruto)
-        st.success(f"Alvará do processo {nome_proc} gerado!")
+        st.success(f"Alvará gerado!")
         st.download_button(
-            label="📥 BAIXAR PDF AGORA",
+            label="📥 BAIXAR AGORA",
             data=pdf_ready,
             file_name=f"Alvara_{nome_proc}.pdf",
             mime="application/pdf"
         )
-    else:
-        st.error("Por favor, cole os dados primeiro.")
