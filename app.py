@@ -21,12 +21,11 @@ def formatar_cpf_cnpj(valor):
         return f"{numeros[:3]}.{numeros[3:6]}.{numeros[6:9]}-{numeros[9:]}"
     return valor
 
-def gerar_pdf_tropa_original(dados):
+def gerar_pdf_tropa_final(dados):
     packet = io.BytesIO()
     c = canvas.Canvas(packet, pagesize=A4)
     largura, altura = A4
     
-    # Busca o fundo (template.png)
     try:
         c.drawImage('template.png', 0, 0, width=largura, height=altura)
     except:
@@ -34,64 +33,56 @@ def gerar_pdf_tropa_original(dados):
 
     c.setFillColorRGB(0, 0, 0)
     
-    # 1. PROCESSO NO TOPO DIREITO (Lugar 1)
+    # 1. PROCESSO NO TOPO DIREITO
     c.setFont("Helvetica-Bold", 10)
     c.drawString(440, altura - 153, f"{dados['processo']}")
     
-    # 2. BLOCO DE INFORMAÇÕES (Lugar 2 e outros dados)
+    # 2. BLOCO DE DADOS (altura - 316)
     x_margem = 105
     y = altura - 316 
     
-    def escrever_campo(label, valor, y_pos, negrito_valor=False):
+    def escrever_linha(label, valor, y_pos, bold_valor=False):
         c.setFont("Helvetica-Bold", 11)
         c.drawString(x_margem, y_pos, label)
-        largura_label = c.stringWidth(label, "Helvetica-Bold", 11)
-        
-        if negrito_valor:
-            c.setFont("Helvetica-Bold", 11)
-        else:
-            c.setFont("Helvetica", 11)
-        c.drawString(x_margem + largura_label, y_pos, str(valor))
+        w = c.stringWidth(label, "Helvetica-Bold", 11)
+        c.setFont("Helvetica-Bold" if bold_valor else "Helvetica", 11)
+        c.drawString(x_margem + w, y_pos, str(valor))
 
-    # Credor
-    escrever_campo("Credor: ", dados['nome'], y)
+    escrever_linha("Credor: ", dados['nome'], y)
     y -= 15
-    # CPF/CNPJ
-    escrever_campo("CPF/CNPJ: ", dados['cpf'], y)
+    escrever_linha("CPF/CNPJ: ", dados['cpf'], y)
     y -= 15
-    # Processo Nº (Lugar 2)
-    escrever_campo("Processo N°: ", dados['processo'], y)
+    escrever_linha("Processo N°: ", dados['processo'], y)
     y -= 15
-    # Assunto
-    escrever_campo("Assunto: ", "Práticas Abusivas", y)
+    escrever_linha("Assunto: ", dados['assunto'], y)
     y -= 15
-    # Cumprimento de sentença contra
+    
     c.setFont("Helvetica-Bold", 11)
     c.drawString(x_margem, y, "Cumprimento de sentença contra:")
     y -= 15
-    c.setFont("Helvetica", 11)
-    c.drawString(x_margem, y, str(dados['contra']))
+    c.setFont("Helvetica", 10) # Fonte levemente menor para caber nomes longos
+    c.drawString(x_margem, y, str(dados['contra'])[:90])
 
-    # 3. VALOR A RECEBER E EXTENSO
+    # 3. VALOR A RECEBER (altura - 540)
     y_valor = altura - 540
     c.setFont("Helvetica-Bold", 11)
-    texto_v = f"Valor a receber: R$ {dados['valor_str']} "
-    c.drawString(x_margem, y_valor, texto_v)
+    label_v = f"Valor a receber: R$ {dados['valor_str']} "
+    c.drawString(x_margem, y_valor, label_v)
     
-    largura_v = c.stringWidth(texto_v, "Helvetica-Bold", 11)
+    w_v = c.stringWidth(label_v, "Helvetica-Bold", 11)
     c.setFont("Helvetica", 11)
-    c.drawString(x_margem + largura_v, y_valor, f"({dados['extenso']})")
+    c.drawString(x_margem + w_v, y_valor, f"({dados['extenso']})")
 
-    # 4. TEXTOS FIXOS DO TJ (Saindo automático agora)
+    # 4. TEXTOS FIXOS
     y_fixo = y_valor - 25
     c.setFont("Helvetica", 9)
     c.drawString(x_margem, y_fixo, "O valor será depositado em conta corrente vinculada à titularidade indicada no ato da liberação.")
     y_fixo -= 15
     c.drawString(x_margem, y_fixo, "Os autos foram encaminhados pelo TJ para Vara das Execuções, gerando o processo de Execução.")
     
-    # 5. ASSINATURA E DATA
+    # 5. ASSINATURA DINÂMICA
     c.setFont("Helvetica-Bold", 11)
-    c.drawCentredString(largura/2, altura - 675, "Dr. Advogado Responsável")
+    c.drawCentredString(largura/2, altura - 675, dados['advogado'])
     c.drawCentredString(largura/2, altura - 695, f"{obter_data_extenso()}.")
     
     c.save()
@@ -101,31 +92,45 @@ def gerar_pdf_tropa_original(dados):
 # --- INTERFACE ---
 st.title("⚖️ Sistema de Alvarás - TROPA DO ADV")
 
-texto_raw = st.text_area("Cole as informações aqui:", height=250, placeholder="NOME: ...\nCPF: ...\nvalor de R$ ...")
+texto_raw = st.text_area("Cole a mensagem da Live aqui:", height=300)
 
-if st.button("GERAR PDF AGORA"):
+if st.button("GERAR ALVARÁ PROFISSIONAL"):
     if texto_raw:
         try:
-            def buscar(p):
-                m = re.search(p, texto_raw, re.I)
-                return m.group(1).strip() if m else ""
+            # Limpa asteriscos para facilitar a busca
+            t = texto_raw.replace('*', '')
 
-            v_raw = buscar(r"valor de\s*R\$\s*([\d\.,]*)") or buscar(r"VALOR:\s*([\d\.,]*)")
-            v_limpo = v_raw.replace('.', '').replace(',', '.') if v_raw else "0.00"
-            
-            proc = buscar(r"nº\s*([\d\.\-\/]*)") or buscar(r"PROCESSO:\s*([\d\.\-\/]*)")
+            # Buscas precisas baseadas nos seus exemplos
+            nome = re.search(r"NOME:\s*(.*)", t, re.I)
+            cpf = re.search(r"CPF:\s*([\d\.-]*)", t, re.I)
+            # Busca processo que vem depois de "processo nº"
+            proc = re.search(r"processo\s*nº\s*([\d\.\-\/]*)", t, re.I)
+            # Busca assunto
+            assunto = re.search(r"Assunto:\s*(.*)", t, re.I)
+            # Busca parte contrária
+            contra = re.search(r"Parte\s*contrária:\s*(.*)", t, re.I)
+            # Busca valor (depois de "valor de R$")
+            valor = re.search(r"valor\s*de\s*R\$\s*([\d\.,]*)", t, re.I)
+            # Busca o Advogado no final
+            adv = re.search(r"Atenciosamente,\s*(Dr\.\s*.*)", t, re.I)
+
+            v_str = valor.group(1).strip() if valor else "0,00"
+            num_limpo = v_str.replace('.', '').replace(',', '.')
+            extenso = num2words(float(num_limpo), lang='pt_BR', to='currency').title()
 
             dados = {
-                'nome': buscar(r"NOME:\s*(.*)"),
-                'cpf': formatar_cpf_cnpj(buscar(r"CPF:\s*([\d\.-]*)")),
-                'processo': proc if proc else "Processo não informado",
-                'contra': buscar(r"contrária:\s*(.*)") or buscar(r"CONTRA:\s*(.*)"),
-                'valor_str': v_raw if v_raw else "0,00",
-                'extenso': num2words(float(v_limpo), lang='pt_BR', to='currency').title()
+                'nome': nome.group(1).strip() if nome else "Não encontrado",
+                'cpf': formatar_cpf_cnpj(cpf.group(1)) if cpf else "000.000.000-00",
+                'processo': proc.group(1).strip() if proc else "Não informado",
+                'assunto': assunto.group(1).strip() if assunto else "Práticas Abusivas",
+                'contra': contra.group(1).strip() if contra else "Não informado",
+                'valor_str': v_str,
+                'extenso': extenso,
+                'advogado': adv.group(1).strip() if adv else "Dr. Anderson Souza Brito"
             }
 
-            pdf = gerar_pdf_tropa_original(dados)
-            st.success("Tudo certo! PDF gerado no padrão original.")
-            st.download_button("📥 BAIXAR ALVARÁ", pdf, f"ALVARA_{dados['processo']}.pdf")
+            pdf = gerar_pdf_tropa_final(dados)
+            st.success(f"Alvará de {dados['nome']} gerado!")
+            st.download_button("📥 BAIXAR PDF", pdf, f"ALVARA_{dados['processo']}.pdf")
         except Exception as e:
-            st.error(f"Erro ao ler os dados: {e}")
+            st.error(f"Erro ao ler live: {e}")
