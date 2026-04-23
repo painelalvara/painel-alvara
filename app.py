@@ -4,30 +4,17 @@ import io
 from datetime import datetime
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import Paragraph
 from num2words import num2words
 
-# Configuração da Página
-st.set_page_config(page_title="TROPA DO ADV", layout="centered")
+st.set_page_config(page_title="TROPA DO ADV - SISTEMA", layout="centered")
 
-def obter_data_extenso():
-    meses = {1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril", 5: "maio", 6: "junho", 
-             7: "julho", 8: "agosto", 9: "setembro", 10: "outubro", 11: "novembro", 12: "dezembro"}
-    hoje = datetime.now()
-    return f"{hoje.day} de {meses[hoje.month]} de {hoje.year}."
+def formatar_extenso_tropa(valor_float):
+    ext = num2words(valor_float, lang='pt_BR', to='currency').title()
+    return ext.replace(" E ", " e ")
 
-def formatar_cpf_cnpj(valor):
-    numeros = re.sub(r'\D', '', valor)
-    if len(numeros) == 11:
-        return f"{numeros[:3]}.{numeros[3:6]}.{numeros[6:9]}-{numeros[9:]}"
-    return valor
-
-def formatar_extenso_simples(valor_float):
-    # Gera o extenso padrão
-    ext = num2words(valor_float, lang='pt_BR', to='currency')
-    # Deixa apenas a primeira letra da frase em maiúsculo
-    return ext.capitalize()
-
-def gerar_pdf_tropa_corrigido(dados):
+def gerar_pdf_tropa_dinamico(dados):
     packet = io.BytesIO()
     c = canvas.Canvas(packet, pagesize=A4)
     largura, altura = A4
@@ -37,6 +24,12 @@ def gerar_pdf_tropa_corrigido(dados):
     except:
         pass
 
+    # Estilos para permitir quebra de linha
+    styles = getSampleStyleSheet()
+    style_normal = ParagraphStyle('Normal', fontName='Helvetica', fontSize=11, leading=14)
+    style_bold = ParagraphStyle('Bold', fontName='Helvetica-Bold', fontSize=11, leading=14)
+    style_pequeno = ParagraphStyle('Pequeno', fontName='Helvetica', fontSize=8.5, leading=11)
+
     c.setFillColorRGB(0, 0, 0)
     
     # 1. PROCESSO TOPO DIREITO
@@ -44,63 +37,71 @@ def gerar_pdf_tropa_corrigido(dados):
     c.drawString(435, altura - 153, f"{dados['processo']}")
     
     # 2. BLOCO DE DADOS
-    x_margem = 105
-    y = altura - 316 
-    
-    def escrever_campo(label, valor, y_pos, offset):
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(x_margem, y_pos, label)
-        c.setFont("Helvetica", 11)
-        c.drawString(x_margem + offset, y_pos, str(valor))
+    x = 105
+    curr_y = altura - 316
 
-    escrever_campo("Credor: ", dados['nome'], y, 48)
-    y -= 15
-    escrever_campo("CPF/CNPJ: ", dados['cpf'], y, 62)
-    y -= 15
-    escrever_campo("Processo N°: ", dados['processo'], y, 72)
-    y -= 15
-    escrever_campo("Assunto: ", dados['assunto'], y, 50)
-    y -= 15
-    
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(x_margem, y, "Cumprimento de sentença contra:")
-    y -= 15
-    c.setFont("Helvetica", 10)
-    # Limita o texto da contraparte para não estourar a margem
-    contra_texto = str(dados['contra'])
-    if len(contra_texto) > 85:
-        contra_texto = contra_texto[:82] + "..."
-    c.drawString(x_margem, y, contra_texto)
+    # Campos simples
+    campos = [
+        ("Credor: ", dados['nome']),
+        ("CPF/CNPJ: ", dados['cpf']),
+        ("Processo N°: ", dados['processo']),
+        ("Assunto: ", dados['assunto'])
+    ]
 
-    # 3. VALOR A RECEBER
-    y_valor = altura - 540
-    c.setFont("Helvetica-Bold", 11)
-    texto_v = f"Valor a receber: R$ {dados['valor_str']} "
-    c.drawString(x_margem, y_valor, texto_v)
-    
-    w_v = c.stringWidth(texto_v, "Helvetica-Bold", 11)
-    c.setFont("Helvetica", 11)
-    c.drawString(x_margem + w_v, y_valor, f"({dados['extenso']})")
+    for label, valor in campos:
+        p = Paragraph(f"<b>{label}</b> {valor}", style_normal)
+        w, h = p.wrap(largura - 200, 20)
+        p.drawOn(c, x, curr_y - h)
+        curr_y -= 20
 
-    # 4. TEXTOS FIXOS
-    y_fixo = y_valor - 25
-    c.setFont("Helvetica", 8.5)
-    c.drawString(x_margem, y_fixo, "O valor será depositado em conta corrente vinculada à titularidade indicada no ato da liberação.")
+    # Cumprimento de Sentença (AQUI ELE PULA LINHA SE FOR GRANDE)
+    p_contra_label = Paragraph("<b>Cumprimento de sentença contra:</b>", style_normal)
+    w, h = p_contra_label.wrap(largura - 200, 20)
+    p_contra_label.drawOn(c, x, curr_y - h)
+    curr_y -= 15
+
+    p_contra_val = Paragraph(dados['contra'], style_normal)
+    w, h = p_contra_val.wrap(largura - 180, 100) # Largura máxima antes de pular
+    p_contra_val.drawOn(c, x, curr_y - h)
+    
+    # Empurra o resto para baixo baseado no tamanho do nome da empresa
+    curr_y -= (h + 30)
+
+    # 3. VALOR A RECEBER (TAMBÉM PULA LINHA SE O EXTENSO FOR LONGO)
+    p_valor = Paragraph(f"<b>Valor a receber: R$ {dados['valor_str']}</b> ({dados['extenso']})", style_normal)
+    w, h = p_valor.wrap(largura - 180, 100)
+    # A posição do valor no template é fixa em torno de altura - 540, 
+    # mas vamos usar o curr_y para manter a proporção se a empresa for gigante
+    y_final_valor = min(curr_y, altura - 540) 
+    p_valor.drawOn(c, x, y_final_valor)
+
+    # 4. TEXTOS FIXOS (Sempre abaixo do valor)
+    y_fixo = y_final_valor - h - 10
+    p_fixo1 = Paragraph("O valor será depositado em conta corrente vinculada à titularidade indicada no ato da liberação.", style_pequeno)
+    w, h1 = p_fixo1.wrap(largura - 180, 50)
+    p_fixo1.drawOn(c, x, y_fixo)
+    
     y_fixo -= 12
-    c.drawString(x_margem, y_fixo, "Os autos foram encaminhados pelo TJ para Vara das Execuções, gerando o processo de Execução.")
+    p_fixo2 = Paragraph("Os autos foram encaminhados pelo TJ para Vara das Execuções, gerando o processo de Execução.", style_pequeno)
+    p_fixo2.wrap(largura - 180, 50)
+    p_fixo2.drawOn(c, x, y_fixo)
     
-    # 5. ASSINATURA
+    # 5. ASSINATURA (Sempre no mesmo lugar no fim)
     c.setFont("Helvetica-Bold", 11)
-    c.drawCentredString(largura/2, altura - 675, dados['advogado'])
-    c.drawCentredString(largura/2, altura - 695, f"{obter_data_extenso()}")
+    c.drawCentredString(largura/2, 160, dados['advogado'])
+    c.setFont("Helvetica", 11)
+    hoje = datetime.now()
+    meses = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+    data_ext = f"{hoje.day} de {meses[hoje.month-1]} de {hoje.year}."
+    c.drawCentredString(largura/2, 140, data_ext)
     
     c.save()
     packet.seek(0)
     return packet
 
-# Interface
+# Interface Streamlit
 st.title("⚖️ SISTEMA TROPA DO ADV")
-texto_raw = st.text_area("Cole a Live aqui:", height=250)
+texto_raw = st.text_area("Cole a Live:", height=200)
 
 if st.button("GERAR ALVARÁ"):
     if texto_raw:
@@ -116,22 +117,21 @@ if st.button("GERAR ALVARÁ"):
 
             v_str = valor.group(1).strip() if valor else "0,00"
             num_limpo = v_str.replace('.', '').replace(',', '.')
-            
-            extenso_final = formatar_extenso_simples(float(num_limpo))
+            ext_final = formatar_extenso_tropa(float(num_limpo))
 
             dados = {
                 'nome': nome.group(1).strip() if nome else "",
-                'cpf': formatar_cpf_cnpj(cpf.group(1)) if cpf else "",
+                'cpf': cpf.group(1).strip() if cpf else "",
                 'processo': proc.group(1).strip() if proc else "",
-                'assunto': assunto.group(1).strip() if assunto else "Práticas Abusivas",
+                'assunto': assunto.group(1).strip() if assunto else "",
                 'contra': contra.group(1).strip() if contra else "",
                 'valor_str': v_str,
-                'extenso': extenso_final,
+                'extenso': ext_final,
                 'advogado': adv.group(1).strip().upper() if adv else "DR. ADVOGADO RESPONSÁVEL"
             }
 
-            pdf = gerar_pdf_tropa_corrigido(dados)
-            st.success("Alvará gerado com sucesso!")
+            pdf = gerar_pdf_tropa_dinamico(dados)
+            st.success("Perfeito! Com quebra de linha igual ao original.")
             st.download_button("📥 BAIXAR ALVARÁ", pdf, f"ALVARA_{dados['processo']}.pdf")
         except Exception as e:
             st.error(f"Erro: {e}")
