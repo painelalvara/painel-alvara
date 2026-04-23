@@ -5,69 +5,58 @@ from PIL import Image
 import io
 import re
 
+# Configuração da página
 st.set_page_config(page_title="TROPA DO ADV", layout="centered")
 
-# Estilo para ficar com a cara da Tropa
-st.markdown("""
-    <style>
-    .main { background-color: #f5f5f5; }
-    stButton>button { width: 100%; background-color: #000000; color: white; height: 3em; border-radius: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("⚖️ Sistema de Alvarás - TROPA DO ADV")
 
-st.title("⚖️ Painel de Alvarás - TROPA DO ADV")
+# Área de texto para colar a live
+texto_bruto = st.text_area("Cole as informações da live aqui:", height=300)
 
-texto_live = st.text_area("Cole os dados brutos da live aqui:", height=250)
-
-def extrair_dados(texto):
-    # Procura os padrões no seu texto da live
-    processo = re.search(r"PROCESSO:\s*([\d\.-]+)", texto)
-    valor = re.search(r"VALOR:\s*R\$\s*([\d\.,]+)", texto)
-    sentenca = re.search(r"SENTENÇA:\s*(.*)", texto)
+def gerar_pdf(texto):
+    # Lógica original de extração de dados
+    processo = re.search(r"(?:PROCESSO|Processo):\s*([\d\.\-\/]+)", texto)
+    valor = re.search(r"(?:VALOR|Valor|valor):\s*[R$\s]*([\d\.,]+)", texto)
     
-    return {
-        "processo": processo.group(1) if processo else "N/A",
-        "valor": valor.group(1) if valor else "0,00",
-        "sentenca": sentenca.group(1) if sentenca else "Procedente"
-    }
+    num_processo = processo.group(1) if processo else "NÃO INFORMADO"
+    valor_total = valor.group(1) if valor else "0,00"
+    
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet, pagesize=A4)
+    
+    # Tenta carregar o template original
+    try:
+        can.drawImage("template.png", 0, 0, width=595, height=842)
+    except:
+        pass
 
-if st.button("GERAR ALVARÁ PROFISSIONAL"):
-    if texto_live:
-        dados = extrair_dados(texto_live)
-        packet = io.BytesIO()
-        can = canvas.Canvas(packet, pagesize=A4)
-        
-        # Tenta colocar o seu template de fundo
-        try:
-            can.drawImage("template.png", 0, 0, width=595, height=842)
-        except:
-            pass
+    # Formatação do texto no PDF (Posições originais)
+    can.setFont("Helvetica-Bold", 12)
+    can.drawString(110, 680, f"PROCESSO: {num_processo}")
+    can.drawString(110, 660, f"VALOR: R$ {valor_total}")
+    
+    # Restante do texto (Corpo da sentença)
+    can.setFont("Helvetica", 10)
+    linhas = texto.split('\n')
+    y_pos = 600
+    for linha in linhas:
+        if y_pos > 100:
+            can.drawString(100, y_pos, linha)
+            y_pos -= 15
+            
+    can.save()
+    packet.seek(0)
+    return packet, num_processo
 
-        # ESCREVENDO OS DADOS NO LUGAR CERTO (Ajuste as coordenadas se precisar)
-        can.setFont("Helvetica-Bold", 12)
-        can.setFillColorRGB(0, 0, 0)
-        
-        # Posições baseadas no seu modelo antigo
-        can.drawString(150, 680, f"PROCESSO: {dados['processo']}")
-        can.drawString(150, 660, f"VALOR: R$ {dados['valor']}")
-        
-        can.setFont("Helvetica", 11)
-        # Quebra o texto da sentença para não sair da folha
-        text_object = can.beginText(100, 600)
-        text_object.textLines(f"SENTENÇA: {dados['sentenca']}")
-        can.drawText(text_object)
-
-        can.save()
-        packet.seek(0)
-        
-        st.success("PDF Gerado! Confira os dados abaixo:")
-        st.write(f"**Processo:** {dados['processo']} | **Valor:** R$ {dados['valor']}")
-        
+if st.button("GERAR MEU ALVARÁ ORIGINAL"):
+    if texto_bruto:
+        pdf_ready, nome_proc = gerar_pdf(texto_bruto)
+        st.success(f"Alvará do processo {nome_proc} gerado!")
         st.download_button(
-            label="📥 BAIXAR ALVARÁ AGORA",
-            data=packet,
-            file_name=f"Alvara_{dados['processo']}.pdf",
+            label="📥 BAIXAR PDF AGORA",
+            data=pdf_ready,
+            file_name=f"Alvara_{nome_proc}.pdf",
             mime="application/pdf"
         )
     else:
-        st.error("Cole o texto da live para processar.")
+        st.error("Por favor, cole os dados primeiro.")
