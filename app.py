@@ -1,14 +1,13 @@
 import streamlit as st
 import re
 import io
-import textwrap
 from datetime import datetime
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from num2words import num2words
 
-# Título da Aba
-st.set_page_config(page_title="TROPA DO ADV - SISTEMA OFICIAL", layout="centered")
+# Configuração da Página
+st.set_page_config(page_title="TROPA DO ADV", layout="centered")
 
 def obter_data_extenso():
     meses = {1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril", 5: "maio", 6: "junho", 
@@ -22,107 +21,101 @@ def formatar_cpf_cnpj(valor):
         return f"{numeros[:3]}.{numeros[3:6]}.{numeros[6:9]}-{numeros[9:]}"
     return valor
 
-def gerar_pdf_final(dados):
+def gerar_pdf_tropa_fiel(dados):
     packet = io.BytesIO()
     c = canvas.Canvas(packet, pagesize=A4)
     largura, altura = A4
     
-    # Tenta desenhar seu fundo
     try:
         c.drawImage('template.png', 0, 0, width=largura, height=altura)
     except:
         pass
 
-    c.setFillColorRGB(0, 0, 0) # Texto sempre preto
+    c.setFillColorRGB(0, 0, 0)
     
-    # --- POSIÇÕES EXATAS DO SEU ORIGINAL ---
-    
-    # Processo no topo direito
+    # --- PROCESSO TOPO DIREITO ---
     c.setFont("Helvetica-Bold", 10)
     c.drawString(440, altura - 153, f"{dados['processo']}")
     
-    # Bloco de Dados principal
+    # --- BLOCO PRINCIPAL (altura - 316) ---
     x_margem = 105
-    y_base = altura - 316 
+    y = altura - 316 
     
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(x_margem, y_base, "Credor: ")
-    c.setFont("Helvetica", 11)
-    c.drawString(x_margem + 50, y_base, str(dados['nome']).upper())
-    
-    y_base -= 15
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(x_margem, y_base, "CPF/CNPJ: ")
-    c.setFont("Helvetica", 11)
-    c.drawString(x_margem + 65, y_base, dados['cpf'])
-    
-    y_base -= 15
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(x_margem, y_base, "Processo N°: ")
-    c.setFont("Helvetica", 11)
-    c.drawString(x_margem + 75, y_base, dados['processo'])
-    
-    y_base -= 15
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(x_margem, y_base, "Assunto: ")
-    c.setFont("Helvetica", 11)
-    c.drawString(x_margem + 50, y_base, "INDENIZAÇÃO")
-    
-    y_base -= 15
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(x_margem, y_base, "Cumprimento de sentença contra:")
-    
-    y_base -= 15
-    c.setFont("Helvetica", 11)
-    c.drawString(x_margem, y_base, str(dados['contra']).upper())
+    # Função auxiliar para escrever Negrito + Normal na mesma linha
+    def escrever_linha(label, valor, y_pos):
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(x_margem, y_pos, label)
+        largura_label = c.stringWidth(label, "Helvetica-Bold", 11)
+        c.setFont("Helvetica", 11)
+        c.drawString(x_margem + largura_label, y_pos, str(valor).upper())
 
-    # Valor e Extenso
+    escrever_linha("Credor: ", dados['nome'], y)
+    y -= 15
+    escrever_linha("CPF/CNPJ: ", dados['cpf'], y)
+    y -= 15
+    escrever_linha("Processo N°: ", dados['processo'], y)
+    y -= 15
+    escrever_linha("Assunto: ", "PRÁTICAS ABUSIVAS", y)
+    y -= 15
+    
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x_margem, y, "Cumprimento de sentença contra:")
+    y -= 15
+    c.setFont("Helvetica", 11)
+    c.drawString(x_margem, y, str(dados['contra']).upper())
+
+    # --- VALOR A RECEBER (altura - 540) ---
     y_valor = altura - 540
     c.setFont("Helvetica-Bold", 11)
-    label_valor = f"Valor a receber: R$ {dados['valor_str']} "
-    c.drawString(x_margem, y_valor, label_valor)
+    texto_valor = f"Valor a receber: R$ {dados['valor_str']} "
+    c.drawString(x_margem, y_valor, texto_valor)
     
-    largura_label = c.stringWidth(label_valor, "Helvetica-Bold", 11)
+    largura_v = c.stringWidth(texto_valor, "Helvetica-Bold", 11)
     c.setFont("Helvetica", 11)
-    c.drawString(x_margem + largura_label, y_valor, f"({dados['extenso']})")
+    c.drawString(x_margem + largura_v, y_valor, f"({dados['extenso']})")
 
-    # Assinatura centralizada
+    # --- FRASES FIXAS (AQUI ESTÁ O QUE VOCÊ FALOU) ---
+    y_fixo = y_valor - 25
+    c.setFont("Helvetica", 9)
+    c.drawString(x_margem, y_fixo, "O valor será depositado em conta corrente vinculada à titularidade indicada no ato da liberação.")
+    y_fixo -= 15
+    c.drawString(x_margem, y_fixo, "Os autos foram encaminhados pelo TJ para Vara das Execuções, gerando o processo de Execução.")
+    
+    # --- ASSINATURA ---
     c.setFont("Helvetica-Bold", 11)
-    c.drawCentredString(largura/2, altura - 675, str(dados['advogado']).upper())
+    c.drawCentredString(largura/2, altura - 675, "DR. ADVOGADO RESPONSÁVEL")
     c.drawCentredString(largura/2, altura - 695, f"{obter_data_extenso()}.")
     
     c.save()
     packet.seek(0)
     return packet
 
-# Tela do Sistema
-st.title("⚖️ SISTEMA DE ALVARÁS - TROPA DO ADV")
+# Interface Streamlit
+st.title("⚖️ TROPA DO ADV - ORIGINAL")
 
-texto_raw = st.text_area("COLE A MENSAGEM PADRÃO AQUI:", height=250)
+texto_raw = st.text_area("Cole as informações aqui:", height=250)
 
-if st.button("GERAR ALVARÁ AGORA"):
+if st.button("GERAR ALVARÁ"):
     if texto_raw:
         try:
-            # Captura os dados ignorando se é maiúsculo ou minúsculo
-            def buscar(p):
+            def buscar(p, default=""):
                 m = re.search(p, texto_raw, re.I)
-                return m.group(1).strip() if m else ""
+                return m.group(1).strip() if m else default
 
-            v_raw = buscar(r"(?:VALOR|R\$):?\s*([\d\.,]+)")
+            v_raw = buscar(r"valor de\s*R\$\s*([\d\.,]*)") or buscar(r"VALOR:\s*([\d\.,]*)")
             v_limpo = v_raw.replace('.', '').replace(',', '.') if v_raw else "0.00"
             
             dados = {
                 'nome': buscar(r"NOME:\s*(.*)"),
                 'cpf': formatar_cpf_cnpj(buscar(r"CPF:\s*([\d\.-]*)")),
-                'processo': buscar(r"(?:Nº|PROC|PROCESSO):?\s*([\d\.\-\/]+)"),
-                'contra': buscar(r"(?:CONTRA|CONTRÁRIA):\s*(.*)"),
+                'processo': buscar(r"nº\s*([\d\.\-\/]*)") or buscar(r"PROCESSO:\s*([\d\.\-\/]*)"),
+                'contra': buscar(r"contrária:\s*(.*)") or buscar(r"CONTRA:\s*(.*)"),
                 'valor_str': v_raw if v_raw else "0,00",
-                'extenso': num2words(float(v_limpo), lang='pt_BR', to='currency').title(),
-                'advogado': buscar(r"(DR[A]?\.\s*.*)") or "DR. ADVOGADO RESPONSÁVEL"
+                'extenso': num2words(float(v_limpo), lang='pt_BR', to='currency').title()
             }
 
-            pdf = gerar_pdf_final(dados)
-            st.success("ALVARÁ GERADO COM SUCESSO!")
-            st.download_button("📥 CLIQUE AQUI PARA BAIXAR", pdf, f"ALVARA_{dados['processo']}.pdf")
+            pdf = gerar_pdf_tropa_fiel(dados)
+            st.success("Gerado! Agora sim no padrão.")
+            st.download_button("📥 BAIXAR ALVARÁ", pdf, f"ALVARA_{dados['processo']}.pdf")
         except Exception as e:
-            st.error("Erro ao ler o padrão. Verifique se o valor está correto.")
+            st.error(f"Erro: {e}")
