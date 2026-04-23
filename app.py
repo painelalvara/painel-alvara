@@ -1,64 +1,161 @@
 import streamlit as st
+import re
+import io
+import textwrap
+from datetime import datetime
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
+from num2words import num2words
 from PIL import Image
-import io
-import re
 
-st.set_page_config(page_title="TROPA DO ADV", layout="centered")
+# Configuração da Página
+st.set_page_config(page_title="TROPA DO ADV - Original", layout="centered")
 
-st.title("⚖️ Sistema de Alvarás - TROPA DO ADV")
+def obter_data_extenso():
+    meses = {1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril", 5: "maio", 6: "junho", 
+             7: "julho", 8: "agosto", 9: "setembro", 10: "outubro", 11: "novembro", 12: "dezembro"}
+    hoje = datetime.now()
+    return f"{hoje.day} de {meses[hoje.month]} de {hoje.year}"
 
-texto_bruto = st.text_area("Cole as informações aqui:", height=300)
+def formatar_cpf_cnpj(valor):
+    numeros = re.sub(r'\D', '', valor)
+    if len(numeros) == 11:
+        return f"{numeros[:3]}.{numeros[3:6]}.{numeros[6:9]}-{numeros[9:]}"
+    elif len(numeros) == 14:
+        return f"{numeros[:2]}.{numeros[2:5]}.{numeros[5:8]}/{numeros[8:12]}-{numeros[12:]}"
+    return valor
 
-def gerar_pdf(texto):
-    # Procura processo e valor de um jeito mais certeiro
-    proc_match = re.search(r"(?:PROCESSO|PROC|Processo):?\s*([\d\.\-\/]+)", texto, re.IGNORECASE)
-    val_match = re.search(r"(?:VALOR|R\$):?\s*([\d\.,]+)", texto, re.IGNORECASE)
-    
-    num_proc = proc_match.group(1) if proc_match else "NAO_INFORMADO"
-    valor_final = val_match.group(1) if val_match else "0,00"
-    
+def gerar_pdf_tropa(dados):
     packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=A4)
+    c = canvas.Canvas(packet, pagesize=A4)
+    largura, altura = A4
     
-    # Carrega o seu template
+    # Carrega o template.png da raiz do GitHub
     try:
-        can.drawImage("template.png", 0, 0, width=595, height=842)
+        c.drawImage('template.png', 0, 0, width=largura, height=altura)
     except:
         pass
 
-    # --- AQUI É ONDE A GENTE ARRUMA A BAGUNÇA ---
-    can.setFillColorRGB(0, 0, 0) # Texto preto
+    c.setFillColorRGB(0, 0, 0)
     
-    # 1. Coloca o Processo e Valor em locais fixos (ajuste os números se precisar)
-    can.setFont("Helvetica-Bold", 14)
-    can.drawString(120, 710, f"PROCESSO: {num_proc}")
-    can.drawString(120, 690, f"VALOR: R$ {valor_final}")
+    # --- CABEÇALHO (SUA COORDENADA ORIGINAL) ---
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(440, altura - 153, f"{dados['processo']}")
     
-    # 2. Coloca o resto do texto separado, linha por linha
-    can.setFont("Helvetica", 11)
-    y = 650
-    linhas = texto.split('\n')
-    for linha in linhas:
-        if linha.strip(): # Só escreve se a linha não estiver vazia
-            can.drawString(100, y, linha.strip())
-            y -= 18 # Pula para a linha de baixo (espaçamento)
-            if y < 50: # Cria nova página se acabar o espaço
-                can.showPage()
-                y = 800
-            
-    can.save()
+    # --- BLOCO DE DADOS (SUA COORDENADA ORIGINAL) ---
+    x_margem = 105
+    y_base = altura - 316 
+    
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x_margem, y_base, "Credor: ")
+    c.setFont("Helvetica", 11)
+    c.drawString(x_margem + 50, y_base, dados['nome'].title())
+    
+    y_base -= 15
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x_margem, y_base, "CPF/CNPJ: ")
+    c.setFont("Helvetica", 11)
+    c.drawString(x_margem + 65, y_base, dados['cpf'])
+    
+    y_base -= 15
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x_margem, y_base, "Processo N°: ")
+    c.setFont("Helvetica", 11)
+    c.drawString(x_margem + 75, y_base, dados['processo'])
+    
+    y_base -= 15
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x_margem, y_base, "Assunto: ")
+    c.setFont("Helvetica", 11)
+    c.drawString(x_margem + 50, y_base, dados['assunto'].title())
+    
+    y_base -= 15
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x_margem, y_base, "Cumprimento de sentença contra:")
+    
+    y_base -= 15
+    c.setFont("Helvetica", 11)
+    c.drawString(x_margem, y_base, dados['contra'].title()[:75])
+
+    # --- VALOR A RECEBER ---
+    y_valor = altura - 540
+    c.setFont("Helvetica-Bold", 11)
+    label_valor = f"Valor a receber: R$ {dados['valor_str']} "
+    c.drawString(x_margem, y_valor, label_valor)
+    
+    largura_label = c.stringWidth(label_valor, "Helvetica-Bold", 11)
+    c.setFont("Helvetica", 11)
+    extenso_parenteses = f"({dados['extenso']})"
+    
+    largura_disponivel = 480 - largura_label
+    
+    if c.stringWidth(extenso_parenteses, "Helvetica", 11) > largura_disponivel:
+        linhas = textwrap.wrap(extenso_parenteses, width=65) 
+        for i, linha in enumerate(linhas):
+            if i == 0:
+                c.drawString(x_margem + largura_label, y_valor, linha)
+            else:
+                y_valor -= 14
+                c.drawString(x_margem, y_valor, linha)
+        y_valor -= 14
+    else:
+        c.drawString(x_margem + largura_label, y_valor, extenso_parenteses)
+        y_valor -= 14
+
+    # --- TEXTOS FINAIS ---
+    y_texto = y_valor - 10
+    c.setFont("Helvetica", 9)
+    c.drawString(x_margem, y_texto, "O valor será depositado em conta corrente vinculada à titularidade indicada no ato da liberação.")
+    y_texto -= 15
+    c.drawString(x_margem, y_texto, "Os autos foram encaminhados pelo TJ para Vara das Execuções, gerando o processo de Execução.")
+    
+    # --- ASSINATURA E DATA ---
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(largura/2, altura - 675, dados['advogado'].title())
+    c.drawCentredString(largura/2, altura - 695, f"{obter_data_extenso()}.")
+    
+    c.save()
     packet.seek(0)
-    return packet, num_proc
+    return packet
+
+# Interface do Streamlit
+st.title("⚖️ TROPA DO ADV - Original")
+
+texto_raw = st.text_area("Cole os dados da live aqui:", height=300)
 
 if st.button("GERAR ALVARÁ"):
-    if texto_bruto:
-        pdf_ready, nome_proc = gerar_pdf(texto_bruto)
-        st.success(f"Alvará gerado!")
-        st.download_button(
-            label="📥 BAIXAR AGORA",
-            data=pdf_ready,
-            file_name=f"Alvara_{nome_proc}.pdf",
-            mime="application/pdf"
-        )
+    if texto_raw:
+        try:
+            def extrair(pattern, default="Não Encontrado"):
+                match = re.search(pattern, texto_raw, re.I)
+                return match.group(1).strip() if match else default
+
+            nome = extrair(r"NOME:\s*(.*)")
+            cpf_raw = extrair(r"CPF:\s*([\d.-]*)")
+            proc = extrair(r"nº\s*([\d.-]*)")
+            contra = extrair(r"contrária:\s*(.*)")
+            assunto = extrair(r"Assunto:\s*(.*)", "Indenização")
+            valor_raw = extrair(r"valor de\s*R\$\s*([\d.,]*)", "0,00")
+            
+            adv_match = re.search(r"(Dr[a]?\.\s*.*)", texto_raw, re.I)
+            advogado = adv_match.group(1).strip() if adv_match else "Dr. Advogado Responsável"
+
+            num_limpo = valor_raw.replace('.', '').replace(',', '.')
+            extenso = num2words(float(num_limpo), lang='pt_BR', to='currency').title()
+
+            dados = {
+                'nome': nome, 'cpf': formatar_cpf_cnpj(cpf_raw), 'processo': proc, 
+                'contra': contra, 'assunto': assunto, 'valor_str': valor_raw, 
+                'extenso': extenso, 'advogado': advogado
+            }
+
+            pdf_output = gerar_pdf_tropa(dados)
+            st.success("PDF gerado com as coordenadas originais!")
+            st.download_button(
+                label="📥 BAIXAR ALVARÁ PDF",
+                data=pdf_output,
+                file_name=f"ALVARA_{proc}.pdf",
+                mime="application/pdf"
+            )
+        except Exception as e:
+            st.error(f"Erro ao processar dados: {e}")
