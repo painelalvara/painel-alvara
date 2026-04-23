@@ -11,11 +11,11 @@ from num2words import num2words
 st.set_page_config(page_title="SISTEMA TROPA DO ADV", layout="centered")
 
 def formatar_extenso_tropa(valor_float):
-    # Mantém o padrão de capitalização que você aprovou
+    # Padrão de capitalização aprovado: "Quarenta e Cinco..."
     ext = num2words(valor_float, lang='pt_BR', to='currency').title()
     return ext.replace(" E ", " e ")
 
-def gerar_pdf_tropa_estatico(dados):
+def gerar_pdf_tropa_final(dados):
     packet = io.BytesIO()
     c = canvas.Canvas(packet, pagesize=A4)
     largura, altura = A4
@@ -26,54 +26,64 @@ def gerar_pdf_tropa_estatico(dados):
         pass
 
     styles = getSampleStyleSheet()
-    style_topo = ParagraphStyle('Topo', fontName='Helvetica', fontSize=11, leading=12)
     style_corpo = ParagraphStyle('Corpo', fontName='Helvetica', fontSize=11, leading=14)
     style_pequeno = ParagraphStyle('Pequeno', fontName='Helvetica', fontSize=8.5, leading=10)
 
     c.setFillColorRGB(0, 0, 0)
     
-    # 1. PROCESSO NO CABEÇALHO
+    # 1. PROCESSO NO CABEÇALHO (TOPO DIREITO)
     c.setFont("Helvetica-Bold", 10)
     c.drawString(435, altura - 153, f"{dados['processo']}")
     
-    # 2. BLOCO DE DADOS (TRAVADO / JUNTINHO)
+    # 2. BLOCO DE DADOS (ALINHAMENTO FIXO)
     x = 105
-    curr_y = altura - 316
+    y_base = altura - 316
 
-    # Dados do Credor até Assunto
-    campos = [
-        ("Credor: ", dados['nome']),
-        ("CPF/CNPJ: ", dados['cpf']),
-        ("Processo N°: ", dados['processo']),
-        ("Assunto: ", dados['assunto'])
-    ]
-
-    for label, valor in campos:
-        p = Paragraph(f"<b>{label}</b> {valor}", style_topo)
-        p.wrap(largura - 180, 20)
-        p.drawOn(c, x, curr_y - 11)
-        curr_y -= 14
-
-    # Cumprimento de Sentença (COM CORTE 'ETC' SE FOR GRANDE)
-    curr_y -= 5
+    # Credor, CPF, Processo e Assunto alinhados
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(x, curr_y - 11, "Cumprimento de sentença contra:")
-    curr_y -= 14
+    c.drawString(x, y_base, "Credor: ")
+    c.setFont("Helvetica", 11)
+    c.drawString(x + 48, y_base, dados['nome'])
+    
+    y_base -= 14
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x, y_base, "CPF/CNPJ: ")
+    c.setFont("Helvetica", 11)
+    c.drawString(x + 62, y_base, dados['cpf'])
+    
+    y_base -= 14
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x, y_base, "Processo N°: ")
+    c.setFont("Helvetica", 11)
+    c.drawString(x + 72, y_base, dados['processo'])
+    
+    y_base -= 14
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x, y_base, "Assunto: ")
+    c.setFont("Helvetica", 11)
+    c.drawString(x + 50, y_base, dados['assunto'])
 
+    # Cumprimento de sentença logo abaixo do Assunto
+    y_base -= 14
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x, y_base, "Cumprimento de sentença contra:")
+    
+    y_base -= 14
     contra_texto = dados['contra']
+    # Se for maior que o limite da folha, coloca os três pontinhos (...)
     if len(contra_texto) > 85:
-        contra_texto = contra_texto[:82] + " etc." # Usa o 'etc.' conforme solicitado
+        contra_texto = contra_texto[:82] + "..."
     
     c.setFont("Helvetica", 11)
-    c.drawString(x, curr_y - 11, contra_texto)
+    c.drawString(x, y_base, contra_texto)
 
-    # 3. VALOR A RECEBER (ESTE PULA LINHA SE PRECISAR)
+    # 3. VALOR A RECEBER (DINÂMICO: PULA LINHA SE PRECISAR)
     y_valor_fixo = altura - 540
     p_valor = Paragraph(f"<b>Valor a receber: R$ {dados['valor_str']}</b> ({dados['extenso']})", style_corpo)
     w_val, h_val = p_valor.wrap(largura - 180, 100)
     p_valor.drawOn(c, x, y_valor_fixo - h_val)
 
-    # 4. TEXTOS FIXOS (ABAIXO DO VALOR)
+    # 4. TEXTOS FIXOS (ACOMPANHAM O VALOR)
     curr_y_fixo = y_valor_fixo - h_val - 10
     pf1 = Paragraph("O valor será depositado em conta corrente vinculada à titularidade indicada no ato da liberação.", style_pequeno)
     wf1, hf1 = pf1.wrap(largura - 180, 50)
@@ -84,7 +94,7 @@ def gerar_pdf_tropa_estatico(dados):
     wf2, hf2 = pf2.wrap(largura - 180, 50)
     pf2.drawOn(c, x, curr_y_fixo - hf2)
 
-    # 5. ASSINATURA
+    # 5. ASSINATURA E DATA
     c.setFont("Helvetica-Bold", 11)
     c.drawCentredString(largura/2, 160, dados['advogado'])
     c.setFont("Helvetica", 11)
@@ -99,7 +109,7 @@ def gerar_pdf_tropa_estatico(dados):
 
 # Interface Streamlit
 st.title("⚖️ SISTEMA TROPA DO ADV")
-texto_raw = st.text_area("Cole os dados aqui:", height=200)
+texto_raw = st.text_area("Cole a Live aqui:", height=200)
 
 if st.button("GERAR ALVARÁ"):
     if texto_raw:
@@ -120,15 +130,15 @@ if st.button("GERAR ALVARÁ"):
                 'nome': nome.group(1).strip() if nome else "",
                 'cpf': cpf.group(1).strip() if cpf else "",
                 'processo': proc.group(1).strip() if proc else "",
-                'assunto': assunto.group(1).strip() if assunto else "Indenização",
+                'assunto': assunto.group(1).strip() if assunto else "Práticas Abusivas",
                 'contra': contra.group(1).strip() if contra else "",
                 'valor_str': v_str,
                 'extenso': formatar_extenso_tropa(float(num_limpo)),
                 'advogado': adv.group(1).strip().upper() if adv else "DR. ADVOGADO RESPONSÁVEL"
             }
 
-            pdf = gerar_pdf_tropa_estatico(dados)
-            st.success("Tudo certo! Topo travado e valor ajustável.")
-            st.download_button("📥 BAIXAR ALVARÁ", pdf, f"ALVARA_{dados['processo']}.pdf")
+            pdf = gerar_pdf_tropa_final(dados)
+            st.success("Tudo no lugar! Topo fixo com '...' e valor dinâmico.")
+            st.download_button("📥 BAIXAR AGORA", pdf, f"ALVARA_{dados['processo']}.pdf")
         except Exception as e:
             st.error(f"Erro: {e}")
